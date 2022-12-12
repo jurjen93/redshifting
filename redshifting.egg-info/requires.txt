@@ -1,0 +1,4 @@
+astropy
+reproject
+matplotlib
+numpy
