@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-VERSION = '0.1.0'
+VERSION = '1.3'
 DESCRIPTION = 'Redshift a radio source to a higher redshift'
 
 with open('README.md') as f:
