@@ -1,4 +1,4 @@
-# Redshfiting
+# Redshifting
 
 Use this package to shift radio sources (AGN, Clusters, ...) from a given redshift to a higher redshift. \
 This can all be done in image plane, by giving a fits image as input.
