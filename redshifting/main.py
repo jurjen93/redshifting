@@ -120,7 +120,7 @@ class RedShifting:
 
         # update simulated header
         self.sim_header['NAXIS1'], self.sim_header['NAXIS2'] = int(self.hdu.data.shape[-2] * pix_scaling), int(self.hdu.data.shape[-1] * pix_scaling)
-        self.sim_header['CRPIX1'], self.sim_header['CRPIX2'] = self.hdu.data.shape[-2] * pix_scaling / 2, self.hdu.data.shape[-1] * pix_scaling / 2
+        self.sim_header['CRPIX1'], self.sim_header['CRPIX2'] = self.hdu.header['CRPIX1'] * pix_scaling, self.hdu.header['CRPIX2'] * pix_scaling
         self.sim_header['CDELT1'] /= pix_scaling
         self.sim_header['CDELT2'] /= pix_scaling
         self.sim_header['CDELT2_original'] = self.hdu.header['CDELT2']
