@@ -13,3 +13,6 @@ from redshifting import move_source
 myfits = 'Perseus_HBA_full.fits'
 move_source(input_fits=myfits, orig_z=0.018, dz=1.3, output_fits='shifted_'+myfits)
 ```
+
+Video that domstrates the redshifting:
+https://youtube.com/shorts/yTT-3RXxbEc
