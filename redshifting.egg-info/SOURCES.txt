@@ -1,9 +1,0 @@
-README.md
-setup.py
-redshifting/__init__.py
-redshifting/main.py
-redshifting.egg-info/PKG-INFO
-redshifting.egg-info/SOURCES.txt
-redshifting.egg-info/dependency_links.txt
-redshifting.egg-info/requires.txt
-redshifting.egg-info/top_level.txt
