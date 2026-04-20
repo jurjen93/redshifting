@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "redshifting"
+version = "2.0"
+description = "Redshift a radio source to a higher redshift"
+
+readme = "README.md"
+
+authors = [{name = "Jurjen de Jong"}]
+
+keywords = ["python", "redshifting", "radio astronomy"]
+
+dependencies = [
+  "astropy",
+  "reproject",
+  "matplotlib",
+  "numpy"
+]
+
+requires-python = ">=3.8"
+
+classifiers = []
+
+[tool.setuptools]
+packages = { find = {} }
