@@ -1,93 +1,61 @@
-from matplotlib import pyplot as plt
-import numpy as np
-import astropy.units as u
-from reproject import reproject_adaptive as reprojection
-from matplotlib.colors import SymLogNorm, LogNorm
 import os
-from astropy.cosmology import FlatLambdaCDM
-from astropy.io import fits
+import sys
 import warnings
 import pkg_resources
-import sys
-from past.utils import old_div
+from packaging import version
+
+import numpy as np
+import astropy.units as u
+from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.cosmology import FlatLambdaCDM
+from matplotlib import pyplot as plt
+from matplotlib.colors import SymLogNorm, LogNorm
+from reproject import reproject_adaptive as reprojection
 
 warnings.filterwarnings("ignore")
 
-def get_noise(data):
-    """
-    from Cyril Tasse/kMS
-    """
-    maskSup = 1e-7
-    m = data[np.abs(data) > maskSup]
-    rmsold = np.std(m)
-    diff = 1e-1
-    cut = 3.
-    med = np.median(m)
-    for _ in range(10):
-        ind = np.where(np.abs(m - med) < rmsold * cut)[0]
-        rms = np.std(m[ind])
-        if np.abs(old_div((rms - rmsold), rmsold)) < diff: break
-        rmsold = rms
-    return rms
-
 class RedShifting:
-    def __init__(self, fitsfile='', redshift=None, noise=None, keep_noise=True, noise_level=3, middle_pos=None,
-                 spectral_index=1, gaussian_kernel=False, cosmology=None):
+    def __init__(self, fitsfile='', redshift=None, spectral_index=1, gaussian_kernel=False, cosmology=None):
         """
-        :param fits: fits file location
-        :param redshift: redshift
-        :param noise: give noise level in Jy/Beam
-        :param middle_pos: give middle in image
-        :param spectral_index: give spectral index of source. Important for pixel scaling of real emission.
-        :param keep_noise: keep the noise level the same (otherwise it scales with other pixels)
-                            One can decide to keep_noise=True to speed up the algorithm and if noise does not matter
-        :param noise_level: factor of rms noise where above is real emmission. Example: noise_level=3 -->
-                            emission above 3 times rms is real. Only works in combination with keep_noise.
+        Parameters
+        ----------
+        fitsfile : Path to the FITS file to be loaded.
+        redshift : Redshift of the source.
+        spectral_index : float, optional
+            Spectral index of the source (S ∝ ν^−α).
+            Used to scale flux correctly during redshifting.
+        gaussian_kernel : If True, applies a Gaussian beam convolution during reprojection.
+        cosmology : Cosmological model used for distance and scaling calculations.
         """
 
+        # Read FITS
         self.hdu = fits.open(fitsfile)[0]
 
-        # original redshift
+        # Original redshift
         self.redshift = redshift
 
-        # cosmology
+        # Cosmology
         if cosmology is None:
             self.cosmo = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Tcmb0=2.725 * u.K, Om0=0.3)
 
-        # use noise or calculate noise if not given
-        if noise:
-            self.noise = noise
-        else:
-            try:
-                self.noise = get_noise(self.hdu.data) #noise(self.hdu.data) #flux limit is 7e-5 Jy/beam
-            except ModuleNotFoundError:
-                sys.exit('Give noise to RedShifting')
-        if self.noise * 4 < self.hdu.data.max() / 50:
-            self.noise = self.hdu.data.max() / 200
-
-        # keep the noise level the same (True) or scale with reprojection
-        self.keep_noise = keep_noise
-        self.noise_level =  noise_level
-        if self.noise_level!=3 and not self.keep_noise:
-            print('WARNING: noise_level given but keep_noise==False, so noise_level has no effect.')
-
-        # header for simulation
+        # Header for simulation
         self.sim_header = self.hdu.header
 
-        # center position in image
-        if middle_pos:
-            self.hdu.header['CRVAL1'], self.hdu.header['CRVAL2'] = middle_pos
-            self.hdu.header['CRPIX1'], self.hdu.header['CRPIX2'] = len(self.hdu.data) / 2, len(self.hdu.data) / 2
-
-        # spectral index
+        # Spectral index
         if spectral_index is not None:
             self.spectral_index = spectral_index
 
-        # use gaussian kernel with information from the beam to smooth image
+        # Use gaussian kernel with information from the beam to smooth image
         self.gaussian_kernel = gaussian_kernel
-        if self.gaussian_kernel and float(pkg_resources.get_distribution("reproject").version)<0.9:
-            sys.exit("ERROR: Reproject 0.9 is required for gaussian kernel\nUpdate Reproject to version >0.9 or "
-                     "set gaussian_kernel=False.")
+
+        # Check reproject version for Gaussian Kernel
+        reproj_version = version.parse(pkg_resources.get_distribution("reproject").version)
+        if self.gaussian_kernel and reproj_version < version.parse("0.9.0"):
+            sys.exit(
+                "ERROR: reproject >= 0.9.0 is required for gaussian kernel.\n"
+                "Please upgrade reproject or set gaussian_kernel=False."
+            )
 
     @property
     def beam_area(self):
@@ -106,107 +74,142 @@ class RedShifting:
 
     def shift(self, dz=0, save_as=''):
         """
-        Shift image
-        :param dz: delta redshift
-        :param save_as: file name if you want to save
-        :return: shifted image
+        Shift a source image to a higher redshift using cosmological angular
+        diameter scaling and surface brightness dimming.
+
+        Parameters
+        ----------
+        dz : Redshift increment (must be positive).
+        save_as : Output FITS filename. If provided, the shifted image is written to disk.
+
+        Returns
+        -------
+        Shifted (reprojected) image.
         """
 
-        # determine pixel scaling, based on redshift increment
-        pix_scaling = (self.cosmo.angular_diameter_distance(self.redshift)/self.cosmo.angular_diameter_distance(self.redshift+dz)).value
+        # ----------------------------
+        # Cosmological scalings
+        # ----------------------------
+        pix_scaling = (self.cosmo.angular_diameter_distance(self.redshift) / self.cosmo.angular_diameter_distance(self.redshift + dz)).value
+        flux_scaling = (self.cosmo.scale_factor(self.redshift) / self.cosmo.scale_factor(self.redshift + dz)) ** (3 + self.spectral_index)
 
-        # make new header for redshift increment
-        self.sim_header = self.hdu.header.copy()
+        # ----------------------------
+        # Extract data
+        # ----------------------------
+        data = np.asarray(self.hdu.data)
+        original_shape = data.shape
 
-        # update simulated header
-        self.sim_header['NAXIS1'], self.sim_header['NAXIS2'] = int(self.hdu.data.shape[-2] * pix_scaling), int(self.hdu.data.shape[-1] * pix_scaling)
-        self.sim_header['CRPIX1'], self.sim_header['CRPIX2'] = self.hdu.header['CRPIX1'] * pix_scaling, self.hdu.header['CRPIX2'] * pix_scaling
-        self.sim_header['CDELT1'] /= pix_scaling
-        self.sim_header['CDELT2'] /= pix_scaling
-        self.sim_header['CDELT2_original'] = self.hdu.header['CDELT2']
+        data_2d = np.squeeze(data)
+        slice_idx = []
 
-        # make copy of hdu
-        hdu_copy = self.hdu.copy()
+        while data_2d.ndim > 2:
+            slice_idx.append(0)
+            data_2d = data_2d[0]
 
-        # pixel scaling, based on redshift increment
-        pixel_reduction = (self.cosmo.scale_factor(self.redshift)/self.cosmo.scale_factor(self.redshift + dz)) ** (3+self.spectral_index)
+        data_2d = data_2d / flux_scaling
 
-        if self.keep_noise:
-            # determine real emission points
-            real_emission = np.argwhere(hdu_copy.data>self.noise_level*self.noise)
-            for p in real_emission:
-                hdu_copy.data[p[0], p[1]] /= pixel_reduction
-                # if pixels reduce under noise, we replace it with a new gaussian value around the noise
-                if hdu_copy.data[p[0], p[1]]<self.noise:
-                    hdu_copy.data[p[0], p[1]] = abs(np.random.normal(self.noise, self.noise, 1))
-        else:
-            hdu_copy.data /= pixel_reduction
+        # ----------------------------
+        # Input WCS (force 2D)
+        # ----------------------------
+        wcs_in = WCS(self.hdu.header).celestial
+        hdu_in = fits.PrimaryHDU(data=data_2d, header=wcs_in.to_header())
 
-        #reproject
+        # ----------------------------
+        # Output WCS
+        # ----------------------------
+        wcs_out = wcs_in.deepcopy()
+        wcs_out.wcs.cdelt /= pix_scaling
+        wcs_out.wcs.crpix *= pix_scaling
+
+        # ----------------------------
+        # Output shape
+        # ----------------------------
+        ny, nx = data_2d.shape
+        shape_out = (int(ny * pix_scaling), int(nx * pix_scaling))
+
+        # ----------------------------
+        # Reprojection
+        # ----------------------------
         if self.gaussian_kernel:
-            image, _ = reprojection(hdu_copy, self.sim_header, kernel='gaussian', kernel_width=np.sqrt(2*self.beam_area.value/np.pi))
+            image_2d, _ = reprojection(hdu_in, wcs_out, shape_out=shape_out, kernel='gaussian',
+                                       kernel_width=np.sqrt(2 * self.beam_area.value / np.pi))
         else:
-            image, _ = reprojection(hdu_copy, self.sim_header)
+            image_2d, _ = reprojection(hdu_in, wcs_out, shape_out=shape_out)
 
+        # ----------------------------
+        # Restore to original cube shape
+        # ----------------------------
+        if len(original_shape) > 2:
+            new_data = np.zeros(original_shape[:-2] + image_2d.shape)
+            idx = tuple(slice_idx) + (slice(None), slice(None))
+            new_data[idx] = image_2d
+        else:
+            new_data = image_2d
+
+        # ----------------------------
+        # Save output safely
+        # ----------------------------
         if save_as:
-            # Save extra info in header
-            self.sim_header['CDELT1_original'] = self.hdu.header['CDELT1']
-            self.sim_header['BMAJ_repr'] = self.hdu.header['BMAJ'] / pix_scaling
-            self.sim_header['BMIN_repr'] = self.hdu.header['BMIN'] / pix_scaling
-            self.sim_header['pix_scale'] = pix_scaling
-            fits.writeto(save_as, image, self.sim_header, overwrite=True)
+            header_out = wcs_out.to_header()
+            fits.PrimaryHDU(data=image_2d, header=header_out).writeto(save_as, overwrite=True)
 
-        return image
-
-    def reduce_flux(self, factor):
-        """
-        Multiply flux with factor (used for RLF completeness reconstruction)
-        :param factor: multiply data with this factor (to reduce flux)
-        :return: shifted image
-        """
-        return self.hdu.data*factor
-
+        return new_data
 
     def make_image(self, dz, save_as='', video=False, same_imagescale=True):
         """
-        Make image of source
-        :param dz: delta z
-        :param save_as: name of image
-        :param video: make image for video
-        :return:
+        Generate a visualisation of the source at a shifted redshift.
+
+        Parameters
+        ----------
+        dz : Redshift increment used for the shift.
+        save_as : Filename to save the resulting image. If not provided, the image is displayed.
+        video : If True, adjusts the image dimensions for video frame compatibility.
         """
         image_data = self.shift(dz)
-        if video:
-            while image_data.shape[0]%2==1: # we need oneven size otherwise the video will be jizzy
-                dz+=0.001
-                image_data = self.shift(dz)
-        if same_imagescale:
-            plt.imshow(image_data, norm=SymLogNorm(linthresh=np.nanstd(self.hdu.data), vmin=0.1*np.nanstd(self.hdu.data),
-                                                   vmax=np.nanstd(self.hdu.data) * 20), cmap='CMRmap')
-        else:
-            plt.imshow(image_data, norm=LogNorm(vmin=0.001*np.nanstd(image_data),
-                                                   vmax=np.nanstd(image_data) * 10), cmap='CMRmap')
 
-        plt.title(f'Redshift: {np.round(self.redshift+dz, 3)}')
+        # Ensure even dimensions for video compatibility
+        if video:
+            while image_data.shape[0] % 2 == 1:
+                dz += 0.001
+                image_data = self.shift(dz)
+
+        # Choose intensity scaling
+        if same_imagescale:
+            vmin = 0.1 * np.nanstd(self.hdu.data)
+            vmax = 20 * np.nanstd(self.hdu.data)
+            norm = SymLogNorm(linthresh=np.nanstd(self.hdu.data), vmin=vmin, vmax=vmax)
+        else:
+            vmin = 0.001 * np.nanstd(image_data)
+            vmax = 10 * np.nanstd(image_data)
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+
+        # Plot image
+        plt.imshow(image_data, norm=norm, cmap='CMRmap')
+        plt.title(f"Redshift: {np.round(self.redshift + dz, 3)}")
         plt.tight_layout()
         plt.grid(False)
         plt.axis('off')
+
         if save_as:
             plt.savefig(save_as)
         else:
             plt.show()
+
         plt.close()
 
         return self
 
-    def make_video(self, dz_max, save_as=''):
+    def make_video(self, dz_max, frames=100, save_as=''):
         """
-        Make a video with ffmpeg
-        :param dz_max: max delta z
-        :param save_as: file name
-        :return:
+        Generate a video sequence of the source evolving with redshift using ffmpeg.
+
+        Parameters
+        ----------
+        dz_max : Maximum redshift increment defining the range of evolution.
+        frames: Number of frames
+        save_as : Output filename for the generated video. If not provided, defaults to 'movie.mp4'.
         """
-        frame_dz = np.linspace(0, dz_max, 300)
+        frame_dz = np.linspace(0, dz_max, frames)
         os.system('mkdir -p video_frames')
         for n, dz in enumerate(frame_dz):
             self.make_image(dz, f'video_frames/frame_{str(n).rjust(5, "0")}.png', video=True)
@@ -217,33 +220,36 @@ class RedShifting:
         return self
 
 
-def move_source(input_fits='', dz=None, orig_z=None, noise=None, noise_level=3,
-                spectral_index=1, gaussian_kernel=False, output_fits=''):
+def move_source(input_fits='', dz=None, orig_z=None, spectral_index=1,
+                gaussian_kernel=False, make_video=False, output_fits=''):
     """
-    Move a source to a new higher redshift.
+    Move a source to a higher redshift by applying cosmological scaling.
 
-    :param input_fits: input fits name.
-    :param dz: redshift increment.
-    :param redshift: original redshift.
-    :param noise: noise in image.
-    :param noise_level: factor of rms noise where above is real emmission. Example: noise_level=3 -->
-                        emission above 3 times rms is real. Only works in combination with keep_noise.
-    :param spectral_index: give spectral index of source. Important for pixel scaling of real emission.
-    :param gaussian_kernel: use gaussian kernel based on beam information.
-    :param output_fits: output fits file name.
+    Parameters
+    ----------
+    input_fits : Path to the input FITS file.
+    dz : Redshift increment to apply (must be positive).
+    orig_z : Original redshift of the source.
+    spectral_index : Spectral index of the source (S ∝ ν^−α), used for flux scaling.
+    gaussian_kernel : If True, applies Gaussian beam smoothing during reprojection.
+    output_fits : Path for the output FITS file to be written.
     """
-    source = RedShifting(fitsfile=input_fits, redshift=orig_z, noise=noise, noise_level=noise_level,
+
+    source = RedShifting(fitsfile=input_fits, redshift=orig_z,
                          spectral_index=spectral_index, gaussian_kernel=gaussian_kernel)
     if dz is None:
         sys.exit('Please give dz (redshift increment).')
 
-    if dz<0:
-        sys.exit('Redshift increment has to be positive.')
+    if dz<=0:
+        sys.exit('Redshift increment has to be larger than 0.')
 
-    if orig_z<0:
-        sys.exit('Original redshift has to be positive')
+    if orig_z<=0:
+        sys.exit('Original redshift has to be larger than 0')
 
-    source.shift(dz=dz, save_as=output_fits)
+    if make_video:
+        source.make_video(dz_max=dz+orig_z, save_as=input_fits.split('/')[-1]+'.mp4')
+    elif not make_video or output_fits:
+        source.shift(dz=dz, save_as=output_fits)
 
 if __name__ == '__main__':
-    print("Do not call this function directly.")
+    sys.exit("Do not call this script directly.")

@@ -6,7 +6,7 @@ Be aware that this does also modifies the background RMS.
 You can install this package by:
 ```pip install redshifting```
 
-Example to move the Perseus cluster from redshift 0.018 to 1.318:
+Example for shifting from redshift 0.018 to 1.318:
 
 ```
 from redshifting import move_source
@@ -16,3 +16,12 @@ move_source(input_fits=myfits, orig_z=0.018, dz=1.3, output_fits='shifted_'+myfi
 
 Video that domstrates the redshifting:
 https://youtube.com/shorts/yTT-3RXxbEc
+
+### Citation
+
+If you use this code, please cite:
+
+> de Jong, J.M.G.H.J. et al. (2024), *Cosmic evolution of FRI and FRII sources out to z = 2.5*,  
+> Astronomy & Astrophysics, 683, A23.  
+> DOI: https://doi.org/10.1051/0004-6361/202347131  
+> arXiv: https://arxiv.org/abs/2311.13427
