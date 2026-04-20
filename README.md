@@ -11,7 +11,7 @@ Example for shifting from redshift 0.018 to 1.318:
 ```
 from redshifting import move_source
 myfits = 'Perseus_HBA_full.fits'
-move_source(input_fits=myfits, orig_z=0.018, dz=1.3, output_fits='shifted_'+myfits)
+move_source(input_fits=myfits, z=0.018, dz=1.3, output_fits='shifted_'+myfits)
 ```
 
 Video that domstrates the redshifting:

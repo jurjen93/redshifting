@@ -210,7 +210,7 @@ class RedShifting:
         return self
 
 
-def move_source(input_fits='', dz=None, orig_z=None, spectral_index=1,
+def move_source(input_fits='', dz=None, z=None, spectral_index=1,
                 gaussian_kernel=False, make_video=False, output_fits=''):
     """
     Move a source to a higher redshift by applying cosmological scaling.
@@ -219,13 +219,13 @@ def move_source(input_fits='', dz=None, orig_z=None, spectral_index=1,
     ----------
     input_fits : Path to the input FITS file.
     dz : Redshift increment to apply (must be positive).
-    orig_z : Original redshift of the source.
+    z : Original redshift of the source.
     spectral_index : Spectral index of the source (S ∝ ν^−α), used for flux scaling.
     gaussian_kernel : If True, applies Gaussian beam smoothing during reprojection.
     output_fits : Path for the output FITS file to be written.
     """
 
-    source = RedShifting(fitsfile=input_fits, redshift=orig_z,
+    source = RedShifting(fitsfile=input_fits, redshift=z,
                          spectral_index=spectral_index, gaussian_kernel=gaussian_kernel)
     if dz is None:
         sys.exit('Please give dz (redshift increment).')
@@ -233,11 +233,11 @@ def move_source(input_fits='', dz=None, orig_z=None, spectral_index=1,
     if dz<=0:
         sys.exit('Redshift increment has to be larger than 0.')
 
-    if orig_z<=0:
+    if z<=0:
         sys.exit('Original redshift has to be larger than 0')
 
     if make_video:
-        source.make_video(dz_max=dz+orig_z, save_as=input_fits.split('/')[-1]+'.mp4')
+        source.make_video(dz_max=dz+z, save_as=input_fits.split('/')[-1]+'.mp4')
     elif not make_video or output_fits:
         source.shift(dz=dz, save_as=output_fits)
 
