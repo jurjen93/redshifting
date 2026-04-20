@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "redshifting"
-version = "2.1"
+version = "2.2"
 description = "Redshift a radio source to a higher redshift"
 
 readme = "README.md"
