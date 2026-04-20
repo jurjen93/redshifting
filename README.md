@@ -1,7 +1,7 @@
 # Redshifting
 
-Use this package to shift radio sources in a FITS image from a given redshift to a higher redshift in image plane. \
-Be aware that this does also modifies the background RMS.
+Use this package to shift radio sources in image plane from a given redshift to a higher redshift using FITS images. \
+Be aware that this also scales the background RMS.
 
 You can install this package by:
 ```pip install redshifting```
