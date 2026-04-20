@@ -1,8 +1,6 @@
 import os
 import sys
 import warnings
-import pkg_resources
-from packaging import version
 
 import numpy as np
 import astropy.units as u
@@ -48,14 +46,6 @@ class RedShifting:
 
         # Use gaussian kernel with information from the beam to smooth image
         self.gaussian_kernel = gaussian_kernel
-
-        # Check reproject version for Gaussian Kernel
-        reproj_version = version.parse(pkg_resources.get_distribution("reproject").version)
-        if self.gaussian_kernel and reproj_version < version.parse("0.9.0"):
-            sys.exit(
-                "ERROR: reproject >= 0.9.0 is required for gaussian kernel.\n"
-                "Please upgrade reproject or set gaussian_kernel=False."
-            )
 
     @property
     def beam_area(self):
